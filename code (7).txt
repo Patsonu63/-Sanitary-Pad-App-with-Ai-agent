@@ -1,0 +1,151 @@
+// ... (Imports remain the same, including 'package:intl/intl.dart';) ...
+
+class HomeScreen extends StatelessWidget {
+  const HomeScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+          // ... (AppBar remains the same) ...
+          ),
+      body: Consumer<AppState>(
+        builder: (context, appState, child) {
+          // Format the predicted date
+          String predictedDateString = "Calculating...";
+          if (appState.predictionResult?.predictedStartDate != null) {
+              predictedDateString = DateFormat.yMMMd().format(appState.predictionResult!.predictedStartDate!);
+          } else if (appState.predictionResult?.error != null) {
+              predictedDateString = "N/A"; // Or show the error message directly
+          }
+
+          String insightString = appState.predictionResult?.insight
+              ?? appState.predictionResult?.error
+              ?? "Waiting for data...";
+
+
+          return Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: ListView( // Changed Column to ListView to prevent overflow
+              children: [
+                // --- Period Status & Control Card --- (Keep as before)
+                Card(
+                   // ... content ...
+                ),
+                const SizedBox(height: 20),
+
+
+                // --- AI Agent Insights Card --- (NEW)
+                Card(
+                  elevation: 2,
+                  color: Colors.purple[50], // Give it a slightly different look
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          'AI Predictions & Insights',
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Colors.purple[800]),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                           children: [
+                              Icon(Icons.calendar_today_outlined, color: Colors.purple[600], size: 18),
+                              const SizedBox(width: 8),
+                              Text('Predicted Next Period: ', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.purple[700])),
+                              Text(predictedDateString, style: TextStyle(color: Colors.purple[900])),
+                           ],
+                        ),
+                         const SizedBox(height: 8),
+                         Row(
+                           crossAxisAlignment: CrossAxisAlignment.start, // Align icon nicely with text
+                           children: [
+                              Icon(Icons.lightbulb_outline, color: Colors.purple[600], size: 18),
+                              const SizedBox(width: 8),
+                              Expanded( // Allow insight text to wrap
+                                 child: Text(
+                                    insightString,
+                                    style: TextStyle(color: Colors.purple[700]),
+                                    ),
+                              ),
+                           ],
+                         ),
+                          if (appState.predictionResult?.averageCycleLength != null)
+                             Padding(
+                               padding: const EdgeInsets.only(top: 8.0),
+                               child: Text(
+                                  '(Based on an average cycle length of ${appState.predictionResult!.averageCycleLength} days)',
+                                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                               ),
+                             ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+
+                // --- Log Pad Usage Section --- (Keep as before)
+                Text(
+                  'Log Pad Usage',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                 const SizedBox(height: 10),
+                 Wrap(
+                    // ... buttons ...
+                 ),
+                const SizedBox(height: 20),
+
+
+                // --- Recent Pad Logs Section --- (Keep as before, adjust if needed)
+                 Text(
+                  'Recent Logs',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 10),
+                // Use a fixed height or Flexible/Expanded if inside Column,
+                // or let ListView handle scrolling if it's the main widget
+                 appState.recentPadLogs.isEmpty
+                      ? const Center(child: Padding(
+                          padding: EdgeInsets.symmetric(vertical: 20.0),
+                          child: Text('No recent pad logs.')
+                          ))
+                      : ListView.builder(
+                          shrinkWrap: true, // Important inside another ListView
+                          physics: const NeverScrollableScrollPhysics(), // Disable scrolling for inner list
+                          itemCount: appState.recentPadLogs.length,
+                          itemBuilder: (context, index) {
+                            // ... ListTile ...
+                            final log = appState.recentPadLogs[index];
+                            return Card(
+                              margin: const EdgeInsets.symmetric(vertical: 4.0),
+                              child: ListTile(
+                                leading: const Icon(Icons.water_drop_outlined, color: Colors.pinkAccent),
+                                title: Text('Type: ${log.padType}'),
+                                subtitle: Text(
+                                    'Logged: ${DateFormat.yMd().add_jm().format(log.timestamp)}'),
+                              ),
+                            );
+                          },
+                        ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+    // _logPad function remains the same
+    void _logPad(BuildContext context, String type) {
+      context.read<AppState>().logPadUsage(type);
+      ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(
+                content: Text('$type pad logged! Reminder set.'),
+                duration: const Duration(seconds: 2),
+           )
+      );
+  }
+}
+
+// --- HistoryScreen --- (Remains the same as before)

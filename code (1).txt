@@ -1,0 +1,163 @@
+import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
+
+// Models (can be in a separate models.dart file)
+class Cycle {
+  final int? id;
+  final DateTime startDate;
+  DateTime? endDate;
+
+  Cycle({this.id, required this.startDate, this.endDate});
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'startDate': startDate.toIso8601String(),
+      'endDate': endDate?.toIso8601String(),
+    };
+  }
+
+   factory Cycle.fromMap(Map<String, dynamic> map) {
+    return Cycle(
+      id: map['id'],
+      startDate: DateTime.parse(map['startDate']),
+      endDate: map['endDate'] != null ? DateTime.parse(map['endDate']) : null,
+    );
+  }
+}
+
+class PadLog {
+  final int? id;
+  final DateTime timestamp;
+  final String padType; // e.g., "Light", "Regular", "Heavy", "Overnight"
+  final int? cycleId; // Optional: Link log to a specific cycle
+
+  PadLog({this.id, required this.timestamp, required this.padType, this.cycleId});
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'timestamp': timestamp.toIso8601String(),
+      'padType': padType,
+      'cycleId': cycleId,
+    };
+  }
+
+   factory PadLog.fromMap(Map<String, dynamic> map) {
+    return PadLog(
+      id: map['id'],
+      timestamp: DateTime.parse(map['timestamp']),
+      padType: map['padType'],
+      cycleId: map['cycleId'],
+    );
+  }
+}
+
+
+class DatabaseHelper {
+  static final DatabaseHelper _instance = DatabaseHelper._internal();
+  factory DatabaseHelper() => _instance;
+  DatabaseHelper._internal();
+
+  static Database? _database;
+
+  Future<Database> get database async {
+    if (_database != null) return _database!;
+    _database = await _initDatabase();
+    return _database!;
+  }
+
+  Future<Database> _initDatabase() async {
+    Directory documentsDirectory = await getApplicationDocumentsDirectory();
+    String path = join(documentsDirectory.path, 'sanitary_pad_app.db');
+    return await openDatabase(
+      path,
+      version: 1,
+      onCreate: _onCreate,
+    );
+  }
+
+  Future<void> _onCreate(Database db, int version) async {
+    await db.execute('''
+      CREATE TABLE cycles(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        startDate TEXT NOT NULL,
+        endDate TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE pad_logs(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        padType TEXT NOT NULL,
+        cycleId INTEGER,
+        FOREIGN KEY (cycleId) REFERENCES cycles (id) ON DELETE SET NULL
+      )
+    ''');
+  }
+
+  // --- Cycle Methods ---
+  Future<int> insertCycle(Cycle cycle) async {
+    Database db = await database;
+    return await db.insert('cycles', cycle.toMap());
+  }
+
+  Future<int> updateCycleEnd(int id, DateTime endDate) async {
+      Database db = await database;
+      return await db.update(
+          'cycles',
+          {'endDate': endDate.toIso8601String()},
+          where: 'id = ?',
+          whereArgs: [id],
+      );
+  }
+
+  Future<Cycle?> getLatestCycle() async {
+     Database db = await database;
+     List<Map<String, dynamic>> maps = await db.query(
+       'cycles',
+       orderBy: 'startDate DESC',
+       limit: 1
+     );
+     if (maps.isNotEmpty) {
+       return Cycle.fromMap(maps.first);
+     }
+     return null;
+  }
+
+  Future<List<Cycle>> getAllCycles() async {
+    Database db = await database;
+    List<Map<String, dynamic>> maps = await db.query('cycles', orderBy: 'startDate DESC');
+    return List.generate(maps.length, (i) => Cycle.fromMap(maps[i]));
+  }
+
+
+  // --- Pad Log Methods ---
+  Future<int> insertPadLog(PadLog log) async {
+    Database db = await database;
+    return await db.insert('pad_logs', log.toMap());
+  }
+
+  Future<List<PadLog>> getPadLogs([int? cycleId]) async {
+    Database db = await database;
+    List<Map<String, dynamic>> maps;
+    if (cycleId != null) {
+         maps = await db.query('pad_logs', where: 'cycleId = ?', whereArgs: [cycleId], orderBy: 'timestamp DESC');
+    } else {
+         maps = await db.query('pad_logs', orderBy: 'timestamp DESC'); // Get all if no cycle specified
+    }
+
+    return List.generate(maps.length, (i) => PadLog.fromMap(maps[i]));
+  }
+
+   Future<List<PadLog>> getRecentPadLogs(int limit) async {
+    Database db = await database;
+    List<Map<String, dynamic>> maps = await db.query(
+        'pad_logs',
+        orderBy: 'timestamp DESC',
+        limit: limit);
+    return List.generate(maps.length, (i) => PadLog.fromMap(maps[i]));
+  }
+}

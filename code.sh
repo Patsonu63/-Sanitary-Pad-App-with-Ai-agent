@@ -1,0 +1,2 @@
+flutter create sanitary_pad_app
+cd sanitary_pad_app

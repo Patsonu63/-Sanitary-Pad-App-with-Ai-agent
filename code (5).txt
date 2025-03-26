@@ -1,0 +1,122 @@
+import 'dart:math';
+import 'database_helper.dart'; // Assuming Cycle model is here
+
+class PredictionResult {
+  final DateTime? predictedStartDate;
+  final int? averageCycleLength;
+  final String? insight; // e.g., "Your cycles appear regular."
+  final String? error; // e.g., "Need at least 2 completed cycles for prediction."
+
+  PredictionResult({
+      this.predictedStartDate,
+      this.averageCycleLength,
+      this.insight,
+      this.error
+  });
+}
+
+class AiAgentService {
+
+  // Calculates cycle lengths between the start dates of consecutive cycles
+  List<int> _calculateCycleLengths(List<Cycle> completedCycles) {
+    if (completedCycles.length < 2) {
+      return []; // Need at least two start dates to calculate one length
+    }
+
+    List<int> lengths = [];
+    // Sort cycles by start date just in case they aren't already
+    completedCycles.sort((a, b) => a.startDate.compareTo(b.startDate));
+
+    for (int i = 0; i < completedCycles.length - 1; i++) {
+      // Cycle length is the difference between the start dates of consecutive cycles
+      int length = completedCycles[i + 1].startDate.difference(completedCycles[i].startDate).inDays;
+      if (length > 0) { // Basic sanity check
+         lengths.add(length);
+      }
+    }
+    return lengths;
+  }
+
+  // Calculates the average of a list of numbers
+  double _calculateAverage(List<int> numbers) {
+    if (numbers.isEmpty) {
+      return 0.0;
+    }
+    return numbers.reduce((a, b) => a + b) / numbers.length;
+  }
+
+   // Calculates the standard deviation of a list of numbers
+  double _calculateStandardDeviation(List<int> numbers) {
+    if (numbers.length < 2) {
+      return 0.0; // Not meaningful with less than 2 data points
+    }
+    double mean = _calculateAverage(numbers);
+    double variance = numbers.map((x) => pow(x - mean, 2)).reduce((a, b) => a + b) / numbers.length;
+    return sqrt(variance);
+  }
+
+
+  // Main prediction and insight generation method
+  PredictionResult getPredictionsAndInsights(List<Cycle> allCycles) {
+     // Filter out incomplete cycles (those without an end date) for length calculation
+     // We need the *start dates* of completed cycles to calculate lengths between them.
+     // However, the prediction itself depends on the *last* recorded start date, regardless of whether that cycle is complete.
+
+    if (allCycles.isEmpty) {
+        return PredictionResult(error: "No cycle data recorded yet.");
+    }
+
+    // Sort by start date to easily find the latest
+    allCycles.sort((a, b) => a.startDate.compareTo(b.startDate));
+    final lastCycle = allCycles.last;
+
+
+    // --- Calculate Cycle Lengths ---
+    // We need at least 2 cycles (at least one completed length) for meaningful stats
+    // Note: We only consider cycles with *both* start and end dates for historical length calculation,
+    // but if there's only one cycle ever recorded, we can't calculate length yet.
+    // A better way is to calculate length from start_date to start_date.
+    final List<int> cycleLengths = _calculateCycleLengths(allCycles);
+
+    if (cycleLengths.isEmpty) {
+       // Maybe the user only has one cycle logged, or cycles are incomplete
+       if (allCycles.length >= 2) {
+          return PredictionResult(error: "Need at least one completed cycle duration (from start to start of next) for prediction.");
+       } else {
+          return PredictionResult(error: "Need at least 2 cycles recorded for prediction.");
+       }
+    }
+
+    // --- Calculate Average Cycle Length ---
+    double avgLengthDouble = _calculateAverage(cycleLengths);
+    int averageCycleLength = avgLengthDouble.round(); // Use rounded average for prediction
+
+
+    // --- Predict Next Start Date ---
+    // Prediction is based on the start date of the *very last* cycle recorded
+    DateTime predictedStartDate = lastCycle.startDate.add(Duration(days: averageCycleLength));
+
+
+    // --- Generate Insight based on Regularity (Standard Deviation) ---
+    double stdDev = _calculateStandardDeviation(cycleLengths);
+    String insight;
+    // Thresholds for regularity are subjective, adjust as needed
+    if (stdDev <= 2.0) {
+      insight = "Your recent cycles appear very regular (around $averageCycleLength days).";
+    } else if (stdDev <= 5.0) {
+      insight = "Your recent cycles show some variation but are fairly regular (average $averageCycleLength days).";
+    } else {
+      insight = "Your recent cycles seem quite irregular. Average length is around $averageCycleLength days, but variation is high.";
+    }
+     if (cycleLengths.length < 3) {
+        insight += " More data will improve prediction accuracy."; // Add a note if data is limited
+     }
+
+
+    return PredictionResult(
+      predictedStartDate: predictedStartDate,
+      averageCycleLength: averageCycleLength,
+      insight: insight,
+    );
+  }
+}

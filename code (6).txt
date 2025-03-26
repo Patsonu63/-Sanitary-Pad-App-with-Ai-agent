@@ -1,0 +1,121 @@
+import 'package:flutter/material.dart';
+import 'database_helper.dart';
+import 'notification_service.dart';
+import 'ai_agent_service.dart'; // Import the AI service
+
+class AppState extends ChangeNotifier {
+  final DatabaseHelper _dbHelper = DatabaseHelper();
+  final NotificationService _notificationService = NotificationService();
+  final AiAgentService _aiAgent = AiAgentService(); // Instantiate the agent
+
+  Cycle? _currentCycle;
+  List<PadLog> _recentPadLogs = [];
+  List<Cycle> _allCycles = [];
+  List<PadLog> _currentCyclePadLogs = [];
+
+  // Add state for predictions
+  PredictionResult? _predictionResult; // Holds prediction, insight, or error
+
+  Cycle? get currentCycle => _currentCycle;
+  bool get isOnPeriod => _currentCycle != null && _currentCycle!.endDate == null;
+  List<PadLog> get recentPadLogs => _recentPadLogs;
+  List<Cycle> get allCycles => _allCycles;
+  List<PadLog> get currentCyclePadLogs => _currentCyclePadLogs;
+  PredictionResult? get predictionResult => _predictionResult; // Getter for UI
+
+
+  AppState() {
+    _loadInitialData();
+    _notificationService.initialize();
+  }
+
+  Future<void> _loadInitialData() async {
+    _currentCycle = await _dbHelper.getLatestCycle();
+    _recentPadLogs = await _dbHelper.getRecentPadLogs(5);
+    _allCycles = await _dbHelper.getAllCycles(); // Load all cycles
+     if (_currentCycle != null && _currentCycle!.id != null) {
+       _currentCyclePadLogs = await _dbHelper.getPadLogs(_currentCycle!.id);
+     } else {
+       _currentCyclePadLogs = [];
+     }
+
+    _updatePredictionsAndInsights(); // Calculate predictions on load
+    notifyListeners();
+  }
+
+  // Method to trigger AI calculation
+  void _updatePredictionsAndInsights() {
+    if (_allCycles.isNotEmpty) {
+      _predictionResult = _aiAgent.getPredictionsAndInsights(_allCycles);
+    } else {
+       _predictionResult = PredictionResult(error: "Log your first cycle to get started.");
+    }
+    // No need to call notifyListeners() here if called from methods that already do
+  }
+
+
+  Future<void> startPeriod() async {
+    if (!isOnPeriod) {
+       final now = DateTime.now();
+       final newCycle = Cycle(startDate: now);
+       final id = await _dbHelper.insertCycle(newCycle);
+       _currentCycle = Cycle(id: id, startDate: now);
+       _allCycles.insert(0, _currentCycle!); // Add to history list (or fetch all again)
+       _currentCyclePadLogs = [];
+
+       // Re-calculate predictions AFTER adding the new cycle start date
+       _updatePredictionsAndInsights();
+       notifyListeners();
+       print("Period Started");
+    }
+  }
+
+  Future<void> endPeriod() async {
+    if (isOnPeriod && _currentCycle?.id != null) {
+      final now = DateTime.now();
+      await _dbHelper.updateCycleEnd(_currentCycle!.id!, now);
+      _currentCycle!.endDate = now;
+
+      // Update the cycle in the _allCycles list
+      int cycleIndex = _allCycles.indexWhere((c) => c.id == _currentCycle!.id);
+      if (cycleIndex != -1) {
+        _allCycles[cycleIndex] = _currentCycle!;
+      } else {
+         // Should not happen if started correctly, but as fallback:
+         _allCycles = await _dbHelper.getAllCycles(); // Reload all if needed
+      }
+
+      _currentCycle = await _dbHelper.getLatestCycle(); // Refresh current status
+
+      // Re-calculate predictions AFTER the cycle end date is known
+      _updatePredictionsAndInsights();
+      notifyListeners();
+      print("Period Ended");
+      _notificationService.cancelAllNotifications();
+    }
+  }
+
+  Future<void> logPadUsage(String padType) async {
+    // ... (logging logic remains the same) ...
+    final now = DateTime.now();
+    int? currentCycleId = (isOnPeriod && _currentCycle?.id != null) ? _currentCycle!.id : null;
+
+    final newLog = PadLog(timestamp: now, padType: padType, cycleId: currentCycleId);
+    final id = await _dbHelper.insertPadLog(newLog);
+    final addedLog = PadLog(id: id, timestamp: now, padType: padType, cycleId: currentCycleId);
+
+    _recentPadLogs.insert(0, addedLog);
+    if (_recentPadLogs.length > 5) _recentPadLogs.removeLast();
+    if (currentCycleId != null) _currentCyclePadLogs.insert(0, addedLog);
+
+    // Predictions don't change when logging a pad, so no need to recalculate here
+    notifyListeners();
+    print("Logged $padType pad at $now");
+
+    _notificationService.schedulePadChangeReminder(const Duration(hours: 4));
+  }
+
+  Future<List<PadLog>> getLogsForCycle(int cycleId) async {
+     return await _dbHelper.getPadLogs(cycleId);
+  }
+}

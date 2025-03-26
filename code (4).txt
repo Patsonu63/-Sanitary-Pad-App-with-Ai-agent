@@ -1,0 +1,279 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:intl/intl.dart'; // For date formatting
+
+import 'app_state.dart';
+import 'database_helper.dart'; // Import models
+
+void main() {
+  WidgetsFlutterBinding.ensureInitialized(); // Ensure bindings are initialized
+  runApp(
+    ChangeNotifierProvider(
+      create: (context) => AppState(),
+      child: const SanitaryPadApp(),
+    ),
+  );
+}
+
+class SanitaryPadApp extends StatelessWidget {
+  const SanitaryPadApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Sanitary Pad Tracker',
+      theme: ThemeData(
+        primarySwatch: Colors.pink,
+        visualDensity: VisualDensity.adaptivePlatformDensity,
+      ),
+      home: const HomeScreen(),
+    );
+  }
+}
+
+class HomeScreen extends StatelessWidget {
+  const HomeScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    // Use Consumer to listen to AppState changes
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Pad Tracker'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.history),
+            tooltip: 'View History',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const HistoryScreen()),
+              );
+            },
+          ),
+        ],
+      ),
+      body: Consumer<AppState>(
+        builder: (context, appState, child) {
+          return Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // --- Period Status & Control ---
+                Card(
+                  elevation: 2,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                         Text(
+                          'Current Cycle Status',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          appState.isOnPeriod
+                              ? 'You are on your period.'
+                              : 'Not currently on period.',
+                           style: TextStyle(
+                              fontSize: 16,
+                              color: appState.isOnPeriod ? Colors.redAccent : Colors.green,
+                              fontWeight: FontWeight.bold
+                           ),
+                        ),
+                        if (appState.currentCycle != null)
+                         Text(
+                            'Started: ${DateFormat.yMMMd().add_jm().format(appState.currentCycle!.startDate)}',
+                            style: TextStyle(color: Colors.grey[700]),
+                          ),
+                         if (appState.currentCycle?.endDate != null)
+                           Text(
+                            'Ended: ${DateFormat.yMMMd().add_jm().format(appState.currentCycle!.endDate!)}',
+                            style: TextStyle(color: Colors.grey[700]),
+                          ),
+
+                        const SizedBox(height: 15),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            ElevatedButton(
+                              onPressed: appState.isOnPeriod ? null : () {
+                                // Show confirmation dialog maybe?
+                                context.read<AppState>().startPeriod();
+                              },
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.red[300]),
+                              child: const Text('Start Period'),
+                            ),
+                            ElevatedButton(
+                              onPressed: !appState.isOnPeriod ? null : () {
+                                 // Show confirmation dialog maybe?
+                                context.read<AppState>().endPeriod();
+                              },
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.green[300]),
+                              child: const Text('End Period'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // --- Log Pad Usage ---
+                Text(
+                  'Log Pad Usage',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 10),
+                Wrap( // Use Wrap for buttons to fit different screen sizes
+                  spacing: 8.0, // Gap between adjacent chips.
+                  runSpacing: 4.0, // Gap between lines.
+                  children: <Widget>[
+                    ElevatedButton(
+                      onPressed: () => _logPad(context, 'Light'),
+                      child: const Text('Light'),
+                    ),
+                    ElevatedButton(
+                      onPressed: () => _logPad(context, 'Regular'),
+                      child: const Text('Regular'),
+                    ),
+                     ElevatedButton(
+                      onPressed: () => _logPad(context, 'Heavy'),
+                      child: const Text('Heavy'),
+                    ),
+                     ElevatedButton(
+                      onPressed: () => _logPad(context, 'Overnight'),
+                      child: const Text('Overnight'),
+                    ),
+                    // Add more types if needed (e.g., Pantyliner)
+                  ],
+                ),
+                const SizedBox(height: 20),
+
+                // --- Recent Pad Logs ---
+                Text(
+                  'Recent Logs',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: appState.recentPadLogs.isEmpty
+                      ? const Center(child: Text('No recent pad logs.'))
+                      : ListView.builder(
+                          itemCount: appState.recentPadLogs.length,
+                          itemBuilder: (context, index) {
+                            final log = appState.recentPadLogs[index];
+                            return Card(
+                              margin: const EdgeInsets.symmetric(vertical: 4.0),
+                              child: ListTile(
+                                leading: const Icon(Icons.water_drop_outlined, color: Colors.pinkAccent),
+                                title: Text('Type: ${log.padType}'),
+                                subtitle: Text(
+                                    'Logged: ${DateFormat.yMd().add_jm().format(log.timestamp)}'),
+                                // isThreeLine: true,
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _logPad(BuildContext context, String type) {
+      // Maybe show a confirmation or allow adding notes in a dialog
+      context.read<AppState>().logPadUsage(type);
+      ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(
+                content: Text('$type pad logged! Reminder set.'),
+                duration: const Duration(seconds: 2),
+           )
+      );
+  }
+}
+
+// --- History Screen (Basic Example) ---
+class HistoryScreen extends StatelessWidget {
+  const HistoryScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+     // Access AppState without listening if only displaying static data on entry
+     // Or use Consumer if it needs to update dynamically
+     final appState = Provider.of<AppState>(context, listen: false);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Cycle & Log History'),
+      ),
+      body: ListView.builder(
+         padding: const EdgeInsets.all(8.0),
+         itemCount: appState.allCycles.length,
+         itemBuilder: (context, index) {
+           final cycle = appState.allCycles[index];
+           final startDateStr = DateFormat.yMMMd().format(cycle.startDate);
+           final endDateStr = cycle.endDate != null ? DateFormat.yMMMd().format(cycle.endDate!) : 'Ongoing';
+            int duration = cycle.endDate != null ? cycle.endDate!.difference(cycle.startDate).inDays + 1 : 0; // +1 to include start day
+
+
+           return Card(
+             elevation: 2,
+              margin: const EdgeInsets.symmetric(vertical: 6.0),
+             child: ExpansionTile( // Allows expanding to see logs for that cycle
+                title: Text('Cycle: $startDateStr - $endDateStr'),
+                subtitle: duration > 0 ? Text('Duration: $duration days') : null,
+                children: <Widget>[
+                  // FutureBuilder to load logs only when expanded
+                  FutureBuilder<List<PadLog>>(
+                     future: appState.getLogsForCycle(cycle.id!), // Fetch logs for this specific cycle ID
+                     builder: (context, snapshot) {
+                       if (snapshot.connectionState == ConnectionState.waiting) {
+                         return const Padding(
+                           padding: EdgeInsets.all(16.0),
+                           child: Center(child: CircularProgressIndicator()),
+                         );
+                       } else if (snapshot.hasError) {
+                          return Padding(
+                           padding: const EdgeInsets.all(16.0),
+                           child: Center(child: Text('Error loading logs: ${snapshot.error}')),
+                         );
+                       } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                          return const Padding(
+                           padding: EdgeInsets.all(16.0),
+                           child: Center(child: Text('No pad logs recorded for this cycle.')),
+                         );
+                       } else {
+                          final logs = snapshot.data!;
+                         return ListView.builder(
+                            shrinkWrap: true, // Important inside ExpansionTile
+                            physics: const NeverScrollableScrollPhysics(), // Disable scrolling within the inner list
+                            itemCount: logs.length,
+                            itemBuilder: (context, logIndex) {
+                               final log = logs[logIndex];
+                               return ListTile(
+                                  dense: true,
+                                   contentPadding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 0), // Indent
+                                  leading: const Icon(Icons.water_drop_outlined, size: 18, color: Colors.pinkAccent,),
+                                  title: Text(log.padType, style: const TextStyle(fontSize: 14)),
+                                  subtitle: Text(DateFormat.Md().add_jm().format(log.timestamp), style: const TextStyle(fontSize: 12)),
+                               );
+                            }
+                         );
+                       }
+                     }
+                  )
+                ],
+             ),
+           );
+         }
+      ),
+    );
+  }
+}

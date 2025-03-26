@@ -1,0 +1,100 @@
+import 'package:flutter/material.dart';
+import 'database_helper.dart';
+import 'notification_service.dart';
+
+class AppState extends ChangeNotifier {
+  final DatabaseHelper _dbHelper = DatabaseHelper();
+  final NotificationService _notificationService = NotificationService();
+
+  Cycle? _currentCycle;
+  List<PadLog> _recentPadLogs = [];
+  List<Cycle> _allCycles = [];
+  List<PadLog> _currentCyclePadLogs = [];
+
+
+  Cycle? get currentCycle => _currentCycle;
+  bool get isOnPeriod => _currentCycle != null && _currentCycle!.endDate == null;
+  List<PadLog> get recentPadLogs => _recentPadLogs;
+  List<Cycle> get allCycles => _allCycles;
+  List<PadLog> get currentCyclePadLogs => _currentCyclePadLogs;
+
+
+  AppState() {
+    _loadInitialData();
+    _notificationService.initialize(); // Initialize notifications
+  }
+
+  Future<void> _loadInitialData() async {
+    _currentCycle = await _dbHelper.getLatestCycle();
+    _recentPadLogs = await _dbHelper.getRecentPadLogs(5); // Load last 5 logs initially
+    _allCycles = await _dbHelper.getAllCycles();
+     if (_currentCycle != null && _currentCycle!.id != null) {
+       _currentCyclePadLogs = await _dbHelper.getPadLogs(_currentCycle!.id);
+     } else {
+       _currentCyclePadLogs = [];
+     }
+    notifyListeners();
+  }
+
+  Future<void> startPeriod() async {
+    if (!isOnPeriod) { // Prevent starting if already started
+       final now = DateTime.now();
+       final newCycle = Cycle(startDate: now);
+       final id = await _dbHelper.insertCycle(newCycle);
+       _currentCycle = Cycle(id: id, startDate: now); // Update state with ID
+       _allCycles.insert(0, _currentCycle!); // Add to history list
+       _currentCyclePadLogs = []; // Clear logs for new cycle
+       notifyListeners();
+       print("Period Started");
+    }
+  }
+
+  Future<void> endPeriod() async {
+    if (isOnPeriod && _currentCycle?.id != null) {
+      final now = DateTime.now();
+      await _dbHelper.updateCycleEnd(_currentCycle!.id!, now);
+      _currentCycle!.endDate = now; // Update local state
+       // No need to reload all cycles here unless you want immediate full refresh
+       // Refresh specific cycle in the list if needed for history view accuracy
+       int cycleIndex = _allCycles.indexWhere((c) => c.id == _currentCycle!.id);
+       if (cycleIndex != -1) {
+         _allCycles[cycleIndex] = _currentCycle!;
+       }
+      _currentCycle = await _dbHelper.getLatestCycle(); // Fetch latest to confirm end
+      notifyListeners();
+       print("Period Ended");
+       _notificationService.cancelAllNotifications(); // Cancel reminders when period ends
+    }
+  }
+
+  Future<void> logPadUsage(String padType) async {
+    final now = DateTime.now();
+    int? currentCycleId = (isOnPeriod && _currentCycle?.id != null) ? _currentCycle!.id : null;
+
+    final newLog = PadLog(timestamp: now, padType: padType, cycleId: currentCycleId);
+    final id = await _dbHelper.insertPadLog(newLog);
+
+    final addedLog = PadLog(id: id, timestamp: now, padType: padType, cycleId: currentCycleId);
+
+    _recentPadLogs.insert(0, addedLog); // Add to recent logs
+     if (_recentPadLogs.length > 5) { // Keep recent list size limited
+       _recentPadLogs.removeLast();
+     }
+
+     if (currentCycleId != null) {
+        _currentCyclePadLogs.insert(0, addedLog); // Add to current cycle logs
+     }
+
+
+    notifyListeners();
+    print("Logged $padType pad at $now");
+
+    // Schedule a reminder (e.g., 4 hours later)
+    _notificationService.schedulePadChangeReminder(const Duration(hours: 4));
+  }
+
+   // Method to load logs for a specific cycle (for history view)
+  Future<List<PadLog>> getLogsForCycle(int cycleId) async {
+     return await _dbHelper.getPadLogs(cycleId);
+  }
+}
